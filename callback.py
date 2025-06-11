@@ -61,9 +61,9 @@ def callback():
     if sign != expected_sign:
         return jsonify({'error': 'Invalid signature'}), 403
 
-    safe_status = str(status)
-    if safe_status.isdigit():
-        status_int = int(safe_status)
+    # Chuẩn hóa status
+    if status.isdigit():
+        status_int = int(status)
         if status_int == 1:
             safe_status = 'success'
         elif status_int == 99:
@@ -72,15 +72,20 @@ def callback():
             safe_status = 'error'
         else:
             safe_status = 'unknown'
+    else:
+        safe_status = status
 
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute(\"UPDATE napthe_requests SET status = ?, message = ?, received_amount = ? WHERE request_id = ?\",
-                   (safe_status, message, received_amount, request_id))
+    cursor.execute(
+        "UPDATE napthe_requests SET status = ?, message = ?, received_amount = ? WHERE request_id = ?",
+        (safe_status, message, received_amount, request_id)
+    )
     conn.commit()
     conn.close()
 
     return jsonify({'success': True, 'request_id': request_id, 'status': safe_status, 'received_amount': received_amount})
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=3000)
