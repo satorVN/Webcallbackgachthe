@@ -57,7 +57,7 @@ def callback():
     if partner_id != PARTNER_ID:
         return jsonify({'error': 'Invalid partner_id'}), 403
 
-    expected_sign = hashlib.md5(f\"{API_KEY}{code}{serial}\".encode()).hexdigest()
+    expected_sign = hashlib.md5(f"{API_KEY}{code}{serial}".encode()).hexdigest()
     if sign != expected_sign:
         return jsonify({'error': 'Invalid signature'}), 403
 
