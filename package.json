@@ -1,0 +1,8 @@
+{
+  "name": "card2k-callback",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "bash start.sh"
+  },
+  "dependencies": {}
+}
