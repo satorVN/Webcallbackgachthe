@@ -1,4 +1,3 @@
-
 from flask import Flask, request, jsonify
 import sqlite3
 import os
@@ -14,8 +13,8 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 app = Flask(__name__)
 
-PARTNER_ID = os.getenv('GACHTHE_PARTNER_ID')
-API_KEY = os.getenv('GACHTHE_KEY')
+PARTNER_ID = ('-1022521568')
+API_KEY = ('Fshukr0Ewx7n3vmdDUfSLqqaX7Uf5gUR')
 
 def get_db_connection():
     conn = sqlite3.connect('napthe.db')
