@@ -5,133 +5,143 @@ from dotenv import load_dotenv
 import hashlib
 import logging
 from datetime import datetime
-import asyncio
-import discord
-import threading
 
 # Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('callback.log', encoding='utf-8'),
-        logging.StreamHandler()
-    ]
-)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Load environment variables
 load_dotenv()
 app = Flask(__name__)
 
-# Configuration (should be stored in .env)
-PARTNER_ID = os.getenv("PARTNER_ID", "-1022521568")
-API_KEY = os.getenv("API_KEY", "Fshukr0Ewx7n3vmdDUfSLqqaX7Uf5gUR")
-DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-
-# Discord bot setup
-discord_intents = discord.Intents.default()
-discord_intents.message_content = True
-callback_bot = discord.Client(intents=discord_intents)
+PARTNER_ID = ('-1022521568')
+API_KEY = ('Fshukr0Ewx7n3vmdDUfSLqqaX7Uf5gUR')
 
 def get_db_connection():
-    conn = sqlite3.connect('napthe.db', timeout=30.0)
+    conn = sqlite3.connect('napthe.db')
     conn.row_factory = sqlite3.Row
     return conn
 
-def validate_signature(code, serial, received_sign):
-    expected_sign = hashlib.md5(f"{API_KEY}{code}{serial}".encode()).hexdigest()
-    return expected_sign == received_sign
-
-def normalize_status_message(status, message=""):
-    status_str = str(status)
-    status_mapping = {
-        '1': {'display': 'THÀNH CÔNG', 'description': 'Giao dịch đã được xử lý thành công', 'color': 'success'},
-        '99': {'display': 'ĐANG XỬ LÝ', 'description': 'Giao dịch đang được xử lý', 'color': 'warning'},
-        '3': {'display': 'THẤT BẠI', 'description': 'Thẻ không hợp lệ hoặc đã sử dụng', 'color': 'error'},
-        '100': {'display': 'LỖI HỆ THỐNG', 'description': 'Lỗi từ phía nhà cung cấp', 'color': 'error'},
-        '2': {'display': 'ĐANG KẾT NỐI', 'description': 'Đang kết nối với nhà mạng', 'color': 'info'},
-        '4': {'display': 'HẾT HẠN', 'description': 'Thẻ đã hết hạn sử dụng', 'color': 'error'},
-        '5': {'display': 'SAI MỆNH GIÁ', 'description': 'Mệnh giá thẻ không đúng', 'color': 'error'}
-    }
-    info = status_mapping.get(status_str, None)
-    if info:
-        return status_str, message or info['description'], info['display']
-    logger.warning(f"Unknown status received: {status_str}")
-    return status_str, message or f"Trạng thái không xác định: {status_str}", "KHÔNG XÁC ĐỊNH"
-
-async def notify_discord_user(request_data, new_status, new_message, received_amount):
-    try:
-        if not callback_bot.is_ready():
-            logger.warning("Discord bot not ready, skipping notification")
-            return
-
-        user = await callback_bot.fetch_user(int(request_data['discord_user_id']))
-        status_str, final_message, display_status = normalize_status_message(new_status, new_message)
-
-        color_mapping = {
-            '1': 0x00ff00, '99': 0xffff00, '3': 0xff0000,
-            '100': 0xff0000, '2': 0x0099ff, '4': 0xff6600, '5': 0xff3300
-        }
-        embed_color = color_mapping.get(status_str, 0x808080)
-
-        status_icons = {
-            '1': '✅', '99': '⏳', '3': '❌', '100': '⚠️', '2': '🔄', '4': '⏰', '5': '💰'
-        }
-        status_icon = status_icons.get(status_str, '❓')
-
-        embed = discord.Embed(
-            title=f"TRẠNG THÁI THẺ {request_data['telco'].upper()}",
-            color=embed_color,
-            timestamp=datetime.now()
-        )
-        embed.add_field(name="Request ID", value=f"`{request_data['request_id']}`", inline=False)
-        embed.add_field(name="Mệnh giá", value=f"{request_data['amount']:,} VND", inline=True)
-        embed.add_field(name="Trạng thái", value=f"{status_icon} {display_status}", inline=True)
-        if final_message:
-            embed.add_field(name="Chi tiết", value=final_message, inline=False)
-        if status_str == '1' and received_amount > 0:
-            embed.add_field(name="Thực nhận", value=f"{received_amount:,} VND", inline=True)
-            rate = (received_amount / request_data['amount'] * 100) if request_data['amount'] > 0 else 0
-            embed.add_field(name="Tỷ lệ", value=f"{rate:.1f}%", inline=True)
-
-        await user.send(embed=embed)
-        logger.info(f"Discord notification sent to {user.id} for request {request_data['request_id']}")
-    except Exception as e:
-        logger.error(f"Failed to send Discord notification: {e}")
-
-def run_discord_bot():
-    @callback_bot.event
-    async def on_ready():
-        logger.info(f'Callback Discord bot {callback_bot.user} is ready!')
-
-    asyncio.set_event_loop(asyncio.new_event_loop())
-    callback_bot.run(DISCORD_TOKEN, log_handler=None)
+def normalize_status(status):
+    """
+    Chuẩn hóa status từ Card2K về format chuẩn
+    Card2K: 1=thành công, 99=pending, 3=thất bại, 100=lỗi
+    """
+    status = str(status).strip()
+    
+    if status == '1':
+        return 'success'
+    elif status == '99':
+        return 'pending'
+    elif status == '3':
+        return 'failed'
+    elif status == '100':
+        return 'error'
+    else:
+        logger.warning(f"Unknown status received: {status}")
+        return 'pending'  # Default to pending for unknown status
 
 @app.route('/')
 def home():
-    return jsonify({'status': 'ok', 'message': '✅ Callback server is running.', 'timestamp': datetime.now().isoformat()})
+    return jsonify({'status': 'ok', 'message': '✅ Callback server for Card2K is running.'})
 
-@app.errorhandler(404)
-def not_found(e):
-    return jsonify({'error': 'Endpoint not found'}), 404
-
-@app.errorhandler(500)
-def internal_error(e):
-    logger.error(f"Internal server error: {e}")
-    return jsonify({'error': 'Internal server error'}), 500
-
-def initialize_app():
-    logger.info("Initializing callback server...")
+@app.route('/callback', methods=['POST', 'GET'])
+def callback():
     try:
-        with get_db_connection() as conn:
+        data = request.json or request.form.to_dict() or request.args.to_dict()
+        request_id = data.get('request_id')
+        status = data.get('status', 'pending')
+        received_amount = int(data.get('received_amount', 0))
+        message = data.get('message', '')
+        partner_id = data.get('partner_id')
+        sign = data.get('sign')
+        code = data.get('code')
+        serial = data.get('serial')
+
+        # Log incoming request
+        logger.info(f"Callback received: request_id={request_id}, status={status}, message={message}")
+
+        # Handle GET request - query status
+        if request.method == 'GET':
+            if not request_id:
+                return jsonify({'error': 'Missing request_id'}), 400
+
+            conn = get_db_connection()
             cursor = conn.cursor()
-            cursor.execute("CREATE TABLE IF NOT EXISTS napthe_requests (request_id TEXT PRIMARY KEY)")
-            logger.info("Database initialized successfully")
+            row = cursor.execute("SELECT * FROM napthe_requests WHERE request_id = ?", (request_id,)).fetchone()
+            conn.close()
+
+            if not row:
+                return jsonify({'error': 'Request ID not found'}), 404
+
+            return jsonify({
+                'request_id': request_id,
+                'status': row['status'],
+                'message': row['message'],
+                'received_amount': row['received_amount']
+            })
+
+        # Handle POST request - callback from Card2K
+        if not all([request_id, partner_id, sign, code, serial]):
+            logger.error(f"Missing required fields: {data}")
+            return jsonify({'error': 'Missing required fields'}), 400
+
+        # Verify partner_id
+        if str(partner_id) != str(PARTNER_ID):
+            logger.error(f"Invalid partner_id: {partner_id}, expected: {PARTNER_ID}")
+            return jsonify({'error': 'Invalid partner_id'}), 403
+
+        # Verify signature
+        expected_sign = hashlib.md5(f"{API_KEY}{code}{serial}".encode()).hexdigest()
+        if sign != expected_sign:
+            logger.error(f"Invalid signature: expected {expected_sign}, got {sign}")
+            return jsonify({'error': 'Invalid signature'}), 403
+
+        # Normalize status from Card2K
+        normalized_status = normalize_status(status)
+        
+        # Log processing details
+        logger.info(f"Processing callback: request_id={request_id}, original_status={status}, normalized_status={normalized_status}, message={message}, received_amount={received_amount}")
+
+        # Update database
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        current_time = datetime.now().isoformat()
+        
+        # Check if request exists
+        existing = cursor.execute("SELECT * FROM napthe_requests WHERE request_id = ?", (request_id,)).fetchone()
+        if not existing:
+            logger.error(f"Request ID not found in database: {request_id}")
+            conn.close()
+            return jsonify({'error': 'Request ID not found in database'}), 404
+        
+        # Update the record
+        cursor.execute(
+            "UPDATE napthe_requests SET status = ?, message = ?, received_amount = ?, updated_at = ? WHERE request_id = ?",
+            (normalized_status, message, received_amount, current_time, request_id)
+        )
+        
+        if cursor.rowcount == 0:
+            logger.error(f"Failed to update request_id: {request_id}")
+            conn.close()
+            return jsonify({'error': 'Failed to update database'}), 500
+        
+        conn.commit()
+        conn.close()
+
+        logger.info(f"Successfully updated request {request_id} with status {normalized_status}")
+        
+        return jsonify({
+            'success': True, 
+            'request_id': request_id, 
+            'status': normalized_status, 
+            'received_amount': received_amount,
+            'message': message
+        })
+
     except Exception as e:
-        logger.error(f"Database initialization failed: {e}")
+        logger.error(f"Error processing callback: {str(e)}")
+        return jsonify({'error': 'Internal server error'}), 500
+
 
 if __name__ == '__main__':
-    initialize_app()
-    threading.Thread(target=run_discord_bot, daemon=True).start()
-    app.run(host='0.0.0.0', port=int(os.getenv("PORT", 5000)))
+    app.run(host='0.0.0.0', port=3000, debug=True)
